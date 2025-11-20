@@ -395,3 +395,9 @@ zict @ file:///C:/Users/dev-admin/perseverance-python-buildout/croot/zict_172905
 zipp @ file:///C:/b/abs_2fcpcg89my/croot/zipp_1732630746332/work
 zope.interface @ file:///C:/Users/dev-admin/buildout/croot/zope.interface_1735850995906/work
 zstandard @ file:///C:/b/abs_31t8xmrv_h/croot/zstandard_1731356578015/work
+
+# YSZ 프로젝트 추가 의존성
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+psycopg2-binary>=2.9.9
+python-multipart>=0.0.6
