@@ -70,6 +70,9 @@ class FactLedger:
     is_primary_residence: Optional[Fact[bool]] = None
     residence_period_years: Optional[Fact[int]] = None
 
+    # 다주택 정보
+    house_count: Optional[Fact[int]] = None  # 보유 주택 수 (중과세 판단용)
+
     # 메타데이터
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"

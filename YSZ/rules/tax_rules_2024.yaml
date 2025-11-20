@@ -1,87 +1,125 @@
 # 양도소득세 계산 규칙 (2024년 기준)
 # 버전: 2024.11
 # 최종 수정: 2024-11-20
+# 실제 소득세법 기준 정확한 세율 적용
 
 version: "2024.11"
 effective_date: "2024-01-01"
-description: "2024년 양도소득세 계산 규칙"
+description: "2024년 양도소득세 계산 규칙 (누진세율 구조)"
 
-# 세율 규칙
-tax_rates:
-  # 기본 세율 (일반 지역)
-  basic_long_term:
-    name: "장기보유 기본세율"
-    priority: 10
-    conditions:
-      - field: "holding_period_years"
-        operator: "gte"
-        value: 1
-      - field: "is_adjusted_area"
-        operator: "eq"
-        value: false
-    rate: 0.06
-    description: "1년 이상 보유, 일반지역"
-    legal_basis: "소득세법 제104조 제1항 제1호"
+# 자산 유형 정의
+asset_types:
+  residential:
+    name: "주택"
+    description: "주거용 부동산 (아파트, 단독주택, 다세대 등)"
 
-  basic_short_term:
-    name: "단기보유 기본세율"
-    priority: 9
-    conditions:
-      - field: "holding_period_years"
-        operator: "lt"
-        value: 1
-      - field: "is_adjusted_area"
-        operator: "eq"
-        value: false
-    rate: 0.42
-    description: "1년 미만 보유, 일반지역"
+  non_residential:
+    name: "비주택"
+    description: "상가, 오피스텔(업무용), 토지 등"
+
+# 단기보유 차등 비례세율 (2년 미만 보유)
+short_term_rates:
+  residential_very_short:
+    name: "주택 1년 미만"
+    asset_type: "residential"
+    holding_period_min: 0
+    holding_period_max: 1
+    rate: 0.70
+    description: "주택 1년 미만 보유"
     legal_basis: "소득세법 제104조 제1항 제2호"
 
-  # 중과세 (조정대상지역)
-  adjusted_area_very_short:
-    name: "조정지역 초단기 중과"
-    priority: 20
-    conditions:
-      - field: "holding_period_years"
-        operator: "lt"
-        value: 1
-      - field: "is_adjusted_area"
-        operator: "eq"
-        value: true
-    rate: 0.70
-    description: "1년 미만 보유, 조정대상지역"
-    legal_basis: "소득세법 제104조 제1항 제3호"
-
-  adjusted_area_short:
-    name: "조정지역 단기 중과"
-    priority: 19
-    conditions:
-      - field: "holding_period_years"
-        operator: "gte"
-        value: 1
-      - field: "holding_period_years"
-        operator: "lt"
-        value: 2
-      - field: "is_adjusted_area"
-        operator: "eq"
-        value: true
+  residential_short:
+    name: "주택 1년 이상 2년 미만"
+    asset_type: "residential"
+    holding_period_min: 1
+    holding_period_max: 2
     rate: 0.60
-    description: "1년 이상 2년 미만 보유, 조정대상지역"
-    legal_basis: "소득세법 제104조 제1항 제3호"
+    description: "주택 1년 이상 2년 미만 보유"
+    legal_basis: "소득세법 제104조 제1항 제2호"
 
-  adjusted_area_medium:
-    name: "조정지역 중기 중과"
-    priority: 18
+  non_residential_very_short:
+    name: "비주택 1년 미만"
+    asset_type: "non_residential"
+    holding_period_min: 0
+    holding_period_max: 1
+    rate: 0.50
+    description: "비주택 1년 미만 보유"
+    legal_basis: "소득세법 제104조 제1항 제2호"
+
+  non_residential_short:
+    name: "비주택 1년 이상 2년 미만"
+    asset_type: "non_residential"
+    holding_period_min: 1
+    holding_period_max: 2
+    rate: 0.40
+    description: "비주택 1년 이상 2년 미만 보유"
+    legal_basis: "소득세법 제104조 제1항 제2호"
+
+# 기본 누진세율 (2년 이상 보유)
+# 과세표준 구간별 세율 및 누진공제액
+progressive_tax_brackets:
+  - threshold: 14000000          # 1,400만원 이하
+    rate: 0.06                   # 6%
+    deduction: 0                 # 누진공제 0원
+    description: "1,400만원 이하"
+
+  - threshold: 50000000          # 5,000만원 이하
+    rate: 0.15                   # 15%
+    deduction: 1260000           # 누진공제 126만원
+    description: "1,400만원 초과 5,000만원 이하"
+
+  - threshold: 88000000          # 8,800만원 이하
+    rate: 0.24                   # 24%
+    deduction: 5760000           # 누진공제 576만원
+    description: "5,000만원 초과 8,800만원 이하"
+
+  - threshold: 150000000         # 1억 5천만원 이하
+    rate: 0.35                   # 35%
+    deduction: 15440000          # 누진공제 1,544만원
+    description: "8,800만원 초과 1억 5,000만원 이하"
+
+  - threshold: 300000000         # 3억원 이하
+    rate: 0.38                   # 38%
+    deduction: 19940000          # 누진공제 1,994만원
+    description: "1억 5,000만원 초과 3억원 이하"
+
+  - threshold: 500000000         # 5억원 이하
+    rate: 0.40                   # 40%
+    deduction: 25940000          # 누진공제 2,594만원
+    description: "3억원 초과 5억원 이하"
+
+  - threshold: 1000000000        # 10억원 이하
+    rate: 0.42                   # 42%
+    deduction: 35940000          # 누진공제 3,594만원
+    description: "5억원 초과 10억원 이하"
+
+  - threshold: null              # 10억원 초과
+    rate: 0.45                   # 45%
+    deduction: 65940000          # 누진공제 6,594만원
+    description: "10억원 초과"
+
+# 다주택자 중과세율
+# 조정대상지역 + 다주택자 → 기본세율에 추가 세율 적용
+multi_house_surcharge:
+  two_houses:
+    name: "2주택 중과"
+    house_count: 2
+    additional_rate: 0.20        # 20%p 추가
     conditions:
-      - field: "holding_period_years"
-        operator: "gte"
-        value: 2
-      - field: "is_adjusted_area"
-        operator: "eq"
-        value: true
-    rate: 0.42
-    description: "2년 이상 보유, 조정대상지역"
-    legal_basis: "소득세법 제104조 제1항 제3호"
+      - is_adjusted_area: true
+      - holding_period_years >= 2
+    description: "조정대상지역 2주택자"
+    legal_basis: "소득세법 제104조 제1항 제4호"
+
+  three_or_more_houses:
+    name: "3주택 이상 중과"
+    house_count_min: 3
+    additional_rate: 0.30        # 30%p 추가
+    conditions:
+      - is_adjusted_area: true
+      - holding_period_years >= 2
+    description: "조정대상지역 3주택 이상"
+    legal_basis: "소득세법 제104조 제1항 제4호"
 
 # 공제 규칙
 deductions:
@@ -102,55 +140,116 @@ deductions:
     exemption_limit: 1200000000  # 12억원
     description: "2년 이상 보유 및 거주한 1세대 1주택"
     legal_basis: "소득세법 제89조 제1항 제3호"
+    notes: |
+      - 양도가액 12억원 이하: 전액 비과세
+      - 양도가액 12억원 초과: 초과분에 대해서만 과세
 
   # 장기보유특별공제
   long_term_holding_deduction:
     name: "장기보유특별공제"
     priority: 50
-    conditions:
-      - field: "holding_period_years"
-        operator: "gte"
-        value: 3
-    rates:
-      3: 0.06   # 3년 이상: 6%
-      4: 0.08   # 4년 이상: 8%
-      5: 0.10   # 5년 이상: 10%
-      6: 0.12   # 6년 이상: 12%
-      7: 0.14   # 7년 이상: 14%
-      8: 0.16   # 8년 이상: 16%
-      9: 0.18   # 9년 이상: 18%
-      10: 0.20  # 10년 이상: 20%
-      15: 0.30  # 15년 이상: 30%
-    max_rate: 0.30
     description: "3년 이상 보유 시 양도차익 공제"
     legal_basis: "소득세법 제95조 제2항"
 
-# 계산 단계 정의
-calculation_steps:
-  - step: "calculate_transfer_income"
+    # 일반 자산 (비1세대1주택)
+    general:
+      conditions:
+        - holding_period_years >= 3
+      rates:
+        3: 0.06   # 3년: 6%
+        4: 0.08   # 4년: 8%
+        5: 0.10   # 5년: 10%
+        6: 0.12   # 6년: 12%
+        7: 0.14   # 7년: 14%
+        8: 0.16   # 8년: 16%
+        9: 0.18   # 9년: 18%
+        10: 0.20  # 10년: 20%
+        15: 0.30  # 15년: 30%
+      max_rate: 0.30
+
+    # 1세대 1주택 (거주기간 추가 공제)
+    one_house_owner:
+      conditions:
+        - is_primary_residence: true
+        - holding_period_years >= 3
+        - residence_period_years >= 2
+      base_rates:  # 보유기간 공제
+        3: 0.08   # 3년: 8%
+        4: 0.12   # 4년: 12%
+        5: 0.16   # 5년: 16%
+        6: 0.20   # 6년: 20%
+        7: 0.24   # 7년: 24%
+        8: 0.28   # 8년: 28%
+        9: 0.32   # 9년: 32%
+        10: 0.40  # 10년: 40%
+        15: 0.50  # 15년: 50%
+      residence_rates:  # 거주기간 공제 (추가)
+        2: 0.08   # 2년: 8%
+        3: 0.12   # 3년: 12%
+        4: 0.16   # 4년: 16%
+        5: 0.20   # 5년: 20%
+        6: 0.24   # 6년: 24%
+        7: 0.28   # 7년: 28%
+        8: 0.32   # 8년: 32%
+        9: 0.36   # 9년: 36%
+        10: 0.40  # 10년: 40%
+      max_rate: 0.80  # 최대 80%
+
+# 계산 순서
+calculation_sequence:
+  - step: 1
     name: "양도소득 계산"
-    formula: "disposal_price - acquisition_price - acquisition_cost - disposal_cost - improvement_cost"
+    formula: "disposal_price - acquisition_price - necessary_expenses"
     description: "양도가액에서 취득가액 및 필요경비를 차감"
 
-  - step: "apply_long_term_deduction"
+  - step: 2
     name: "장기보유특별공제 적용"
-    depends_on: ["calculate_transfer_income"]
-    description: "보유기간에 따른 공제 적용"
+    formula: "transfer_income × deduction_rate"
+    description: "보유기간 및 거주기간에 따른 공제"
 
-  - step: "calculate_taxable_income"
+  - step: 3
+    name: "양도소득금액 계산"
+    formula: "transfer_income - long_term_deduction"
+    description: "공제 후 양도소득금액"
+
+  - step: 4
     name: "과세표준 계산"
-    depends_on: ["apply_long_term_deduction"]
-    description: "공제 후 과세 대상 소득 계산"
+    formula: "양도소득금액 - 기본공제(연 250만원)"
+    description: "기본공제 적용 후 과세표준"
+    notes: "기본공제는 연간 합산하여 250만원"
 
-  - step: "apply_tax_rate"
+  - step: 5
     name: "세율 적용"
-    depends_on: ["calculate_taxable_income"]
-    description: "해당 세율을 적용하여 세액 계산"
+    description: |
+      - 2년 미만: 단기보유 차등 비례세율
+      - 2년 이상: 누진세율 (6%~45%)
+      - 다주택자: 중과세율 추가
 
-  - step: "apply_exemptions"
+  - step: 6
+    name: "산출세액 계산"
+    formula: |
+      - 누진세율: (과세표준 × 세율) - 누진공제액
+      - 비례세율: 과세표준 × 세율
+
+  - step: 7
     name: "비과세 및 감면 적용"
-    depends_on: ["apply_tax_rate"]
-    description: "1세대 1주택 등 비과세 요건 확인"
+    description: "1세대 1주택 비과세 등 적용"
+
+# 추가 고려사항
+additional_considerations:
+  basic_deduction:
+    name: "기본공제"
+    amount: 2500000  # 연 250만원
+    description: "양도소득금액에서 연간 250만원 기본공제"
+    legal_basis: "소득세법 제100조"
+    notes: "양도소득이 여러 건 있는 경우 합산하여 연간 250만원까지 공제"
+
+  local_income_tax:
+    name: "지방소득세"
+    rate: 0.10  # 10%
+    description: "산출세액의 10%"
+    legal_basis: "지방세법 제92조"
+    notes: "양도소득세 확정 신고 시 함께 납부"
 
 # 유효성 검증 규칙
 validation_rules:
@@ -159,6 +258,7 @@ validation_rules:
     - "acquisition_price"
     - "disposal_date"
     - "disposal_price"
+    - "asset_type"  # 주택/비주택 구분 필수
 
   logical_checks:
     - name: "disposal_after_acquisition"
@@ -169,11 +269,22 @@ validation_rules:
       check: "acquisition_price >= 0 and disposal_price >= 0"
       error_message: "가격은 0 이상이어야 합니다"
 
+    - name: "valid_asset_type"
+      check: "asset_type in ['residential', 'non_residential']"
+      error_message: "자산 유형은 'residential' 또는 'non_residential'이어야 합니다"
+
 # 메타데이터
 metadata:
   author: "양상증닷컴"
   last_updated: "2024-11-20"
+  version_notes: |
+    v2024.11 - 정확한 누진세율 구조 적용
+    - 단기보유 차등 비례세율 (주택/비주택 구분)
+    - 과세표준 구간별 누진세율 (6%~45%)
+    - 다주택자 중과세율 (+20%p, +30%p)
+    - 1세대 1주택 장기보유특별공제 확대
   notes: |
     - 2024년 기준 양도소득세 계산 규칙
     - 실제 적용 시 개별 사례별 검토 필요
-    - 지방세(지방소득세 10%)는 별도 계산
+    - 지방소득세(10%)는 별도 계산
+    - 농어촌특별세, 양도소득세 예정신고 등은 미반영

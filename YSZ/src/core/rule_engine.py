@@ -1,14 +1,15 @@
-"""RuleEngine: 세법 규칙 엔진"""
+"""RuleEngine: 세법 규칙 엔진 (누진세율 구조)"""
 
 import yaml
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from decimal import Decimal
-from datetime import date
 
 
 class RuleEngine:
     """YAML 파일에서 세법 규칙을 로드하고 적용하는 엔진
+
+    누진세율 구조를 지원합니다.
 
     Attributes:
         rules: 로드된 규칙 딕셔너리
@@ -43,79 +44,164 @@ class RuleEngine:
         with open(rules_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
 
-    def find_applicable_tax_rate(
+    def get_short_term_rate(
         self,
-        holding_period_years: int,
-        is_adjusted_area: bool = False
-    ) -> Dict[str, Any]:
-        """적용 가능한 세율 규칙 찾기
-
-        조건에 맞는 규칙 중 우선순위가 가장 높은 것을 반환합니다.
+        asset_type: str,
+        holding_period_years: int
+    ) -> Optional[Dict[str, Any]]:
+        """단기보유 차등 비례세율 찾기 (2년 미만)
 
         Args:
+            asset_type: 자산 유형 ('residential' 또는 'non_residential')
             holding_period_years: 보유 기간(년)
-            is_adjusted_area: 조정대상지역 여부
 
         Returns:
-            적용 가능한 세율 규칙 딕셔너리
-
-        Raises:
-            ValueError: 적용 가능한 규칙이 없는 경우
+            적용 가능한 세율 규칙 또는 None
         """
-        tax_rates = self.rules.get('tax_rates', {})
-        applicable_rules = []
+        if holding_period_years >= 2:
+            return None
 
-        facts = {
-            'holding_period_years': holding_period_years,
-            'is_adjusted_area': is_adjusted_area
-        }
+        short_term_rates = self.rules.get('short_term_rates', {})
 
-        for rule_name, rule_data in tax_rates.items():
-            if self._check_conditions(rule_data.get('conditions', []), facts):
-                applicable_rules.append({
-                    'name': rule_name,
-                    'priority': rule_data.get('priority', 0),
-                    'rate': rule_data.get('rate'),
-                    'description': rule_data.get('description', ''),
-                    'legal_basis': rule_data.get('legal_basis', ''),
-                    **rule_data
-                })
+        for rate_name, rate_data in short_term_rates.items():
+            if rate_data.get('asset_type') == asset_type:
+                min_period = rate_data.get('holding_period_min', 0)
+                max_period = rate_data.get('holding_period_max', 999)
 
-        if not applicable_rules:
-            raise ValueError(
-                f"적용 가능한 세율 규칙을 찾을 수 없습니다. "
-                f"보유기간: {holding_period_years}년, 조정지역: {is_adjusted_area}"
-            )
+                if min_period <= holding_period_years < max_period:
+                    return {
+                        'name': rate_data.get('name', ''),
+                        'rate': rate_data.get('rate'),
+                        'description': rate_data.get('description', ''),
+                        'legal_basis': rate_data.get('legal_basis', ''),
+                        'is_proportional': True  # 비례세율
+                    }
 
-        # 우선순위가 가장 높은 규칙 반환 (priority 값이 클수록 우선)
-        return max(applicable_rules, key=lambda x: x['priority'])
+        return None
+
+    def calculate_progressive_tax(
+        self,
+        taxable_income: Decimal
+    ) -> Tuple[float, Decimal, str]:
+        """누진세율 계산 (2년 이상 보유)
+
+        과세표준 구간에 따라 적용 세율 및 누진공제액을 반환합니다.
+
+        Args:
+            taxable_income: 과세표준
+
+        Returns:
+            (적용 세율, 누진공제액, 설명) 튜플
+        """
+        brackets = self.rules.get('progressive_tax_brackets', [])
+
+        for bracket in brackets:
+            threshold = bracket.get('threshold')
+
+            # threshold가 None이면 최고 구간
+            if threshold is None or taxable_income <= threshold:
+                return (
+                    bracket.get('rate'),
+                    Decimal(str(bracket.get('deduction', 0))),
+                    bracket.get('description', '')
+                )
+
+        # 기본값 (최고 구간)
+        last_bracket = brackets[-1]
+        return (
+            last_bracket.get('rate'),
+            Decimal(str(last_bracket.get('deduction', 0))),
+            last_bracket.get('description', '')
+        )
+
+    def get_multi_house_surcharge(
+        self,
+        house_count: int,
+        is_adjusted_area: bool,
+        holding_period_years: int
+    ) -> float:
+        """다주택자 중과세율 조회
+
+        Args:
+            house_count: 보유 주택 수
+            is_adjusted_area: 조정대상지역 여부
+            holding_period_years: 보유 기간
+
+        Returns:
+            추가 세율 (없으면 0.0)
+        """
+        if not is_adjusted_area or holding_period_years < 2:
+            return 0.0
+
+        surcharges = self.rules.get('multi_house_surcharge', {})
+
+        if house_count >= 3:
+            # 3주택 이상
+            three_or_more = surcharges.get('three_or_more_houses', {})
+            return three_or_more.get('additional_rate', 0.0)
+        elif house_count == 2:
+            # 2주택
+            two_houses = surcharges.get('two_houses', {})
+            return two_houses.get('additional_rate', 0.0)
+
+        return 0.0
 
     def calculate_long_term_deduction_rate(
         self,
-        holding_period_years: int
+        holding_period_years: int,
+        is_primary_residence: bool = False,
+        residence_period_years: int = 0
     ) -> float:
         """장기보유특별공제율 계산
 
         Args:
             holding_period_years: 보유 기간(년)
+            is_primary_residence: 1세대 1주택 여부
+            residence_period_years: 거주 기간(년)
 
         Returns:
-            공제율 (0.0~0.30)
+            공제율 (0.0~0.80)
         """
         deduction_rule = self.rules.get('deductions', {}).get('long_term_holding_deduction', {})
-        rates = deduction_rule.get('rates', {})
-        max_rate = deduction_rule.get('max_rate', 0.30)
 
         if holding_period_years < 3:
             return 0.0
 
-        # 보유 기간에 해당하는 공제율 찾기
-        applicable_rate = 0.0
-        for years, rate in rates.items():
-            if holding_period_years >= years:
-                applicable_rate = rate
+        # 1세대 1주택
+        if is_primary_residence and residence_period_years >= 2:
+            one_house = deduction_rule.get('one_house_owner', {})
 
-        return min(applicable_rate, max_rate)
+            # 보유기간 공제
+            base_rates = one_house.get('base_rates', {})
+            holding_rate = 0.0
+            for years, rate in base_rates.items():
+                if holding_period_years >= years:
+                    holding_rate = rate
+
+            # 거주기간 공제
+            residence_rates = one_house.get('residence_rates', {})
+            residence_rate = 0.0
+            for years, rate in residence_rates.items():
+                if residence_period_years >= years:
+                    residence_rate = rate
+
+            # 합산
+            total_rate = holding_rate + residence_rate
+            max_rate = one_house.get('max_rate', 0.80)
+            return min(total_rate, max_rate)
+
+        # 일반 자산
+        else:
+            general = deduction_rule.get('general', {})
+            rates = general.get('rates', {})
+            max_rate = general.get('max_rate', 0.30)
+
+            applicable_rate = 0.0
+            for years, rate in rates.items():
+                if holding_period_years >= years:
+                    applicable_rate = rate
+
+            return min(applicable_rate, max_rate)
 
     def check_exemption_eligibility(
         self,
@@ -151,6 +237,24 @@ class RuleEngine:
             }
 
         return None
+
+    def get_basic_deduction(self) -> Decimal:
+        """기본공제액 조회
+
+        Returns:
+            기본공제액 (연 250만원)
+        """
+        basic = self.rules.get('additional_considerations', {}).get('basic_deduction', {})
+        return Decimal(str(basic.get('amount', 2500000)))
+
+    def get_local_tax_rate(self) -> float:
+        """지방소득세율 조회
+
+        Returns:
+            지방소득세율 (10%)
+        """
+        local_tax = self.rules.get('additional_considerations', {}).get('local_income_tax', {})
+        return local_tax.get('rate', 0.10)
 
     def _check_conditions(
         self,
@@ -242,7 +346,7 @@ class RuleEngine:
         Returns:
             계산 단계 리스트
         """
-        return self.rules.get('calculation_steps', [])
+        return self.rules.get('calculation_sequence', [])
 
     def get_rule_metadata(self) -> Dict[str, Any]:
         """규칙 메타데이터 조회

@@ -98,11 +98,16 @@ class CalculationResult:
         fact_ledger_id: 사용된 FactLedger의 ID
         transfer_income: 양도소득 (양도가액 - 취득가액 - 필요경비)
         long_term_deduction: 장기보유특별공제액
-        taxable_income: 과세표준 (양도소득 - 공제)
-        tax_rate: 적용 세율
-        calculated_tax: 계산된 세액 (과세표준 × 세율)
+        transfer_income_amount: 양도소득금액 (양도소득 - 장기보유특별공제)
+        basic_deduction: 기본공제 (연 250만원)
+        taxable_income: 과세표준 (양도소득금액 - 기본공제)
+        base_tax_rate: 기본 세율 (비례세율 or 누진세율)
+        progressive_deduction: 누진공제액
+        surcharge_rate: 중과세율 (다주택자)
+        calculated_tax: 계산된 세액 (국세)
+        local_tax: 지방소득세 (계산세액의 10%)
         exemption_amount: 비과세 금액
-        final_tax: 최종 납부 세액
+        final_tax: 최종 납부 세액 (국세 + 지방세)
         traces: 계산 과정 추적 리스트
         calculation_time: 계산 수행 시각
         rule_version: 사용된 규칙 버전
@@ -112,9 +117,14 @@ class CalculationResult:
     fact_ledger_id: str
     transfer_income: Decimal
     long_term_deduction: Decimal
+    transfer_income_amount: Decimal
+    basic_deduction: Decimal
     taxable_income: Decimal
-    tax_rate: float
+    base_tax_rate: float
+    progressive_deduction: Decimal
+    surcharge_rate: float
     calculated_tax: Decimal
+    local_tax: Decimal
     exemption_amount: Decimal
     final_tax: Decimal
     traces: List[CalculationTrace]
@@ -132,9 +142,14 @@ class CalculationResult:
             'fact_ledger_id': self.fact_ledger_id,
             'transfer_income': str(self.transfer_income),
             'long_term_deduction': str(self.long_term_deduction),
+            'transfer_income_amount': str(self.transfer_income_amount),
+            'basic_deduction': str(self.basic_deduction),
             'taxable_income': str(self.taxable_income),
-            'tax_rate': self.tax_rate,
+            'base_tax_rate': self.base_tax_rate,
+            'progressive_deduction': str(self.progressive_deduction),
+            'surcharge_rate': self.surcharge_rate,
             'calculated_tax': str(self.calculated_tax),
+            'local_tax': str(self.local_tax),
             'exemption_amount': str(self.exemption_amount),
             'final_tax': str(self.final_tax),
             'traces': [trace.to_dict() for trace in self.traces],
@@ -149,21 +164,49 @@ class CalculationResult:
         Returns:
             사람이 읽기 쉬운 형태의 요약
         """
-        return f"""
+        total_rate = self.base_tax_rate + self.surcharge_rate
+
+        summary = f"""
 === 양도소득세 계산 결과 ===
 
-양도소득:        {self.transfer_income:>15,}원
-장기보유공제:    {self.long_term_deduction:>15,}원
-과세표준:        {self.taxable_income:>15,}원
-적용세율:        {self.tax_rate*100:>14.1f}%
-계산세액:        {self.calculated_tax:>15,}원
-비과세액:        {self.exemption_amount:>15,}원
+1. 양도소득:           {self.transfer_income:>15,}원
+2. 장기보유공제:       {self.long_term_deduction:>15,}원
+3. 양도소득금액:       {self.transfer_income_amount:>15,}원
+4. 기본공제:           {self.basic_deduction:>15,}원
+5. 과세표준:           {self.taxable_income:>15,}원
+
+6. 세율:
+   - 기본세율:         {self.base_tax_rate*100:>14.1f}%"""
+
+        if self.surcharge_rate > 0:
+            summary += f"""
+   - 중과세율:         {self.surcharge_rate*100:>14.1f}%"""
+
+        summary += f"""
+   - 합계:             {total_rate*100:>14.1f}%"""
+
+        if self.progressive_deduction > 0:
+            summary += f"""
+   - 누진공제:         {self.progressive_deduction:>15,}원"""
+
+        summary += f"""
+
+7. 산출세액(국세):     {self.calculated_tax:>15,}원
+8. 지방소득세(10%):    {self.local_tax:>15,}원"""
+
+        if self.exemption_amount > 0:
+            summary += f"""
+9. 비과세액:           {self.exemption_amount:>15,}원"""
+
+        summary += f"""
 ─────────────────────────────────
-최종납부세액:    {self.final_tax:>15,}원
+최종납부세액:          {self.final_tax:>15,}원
 
 규칙 버전: {self.rule_version}
 계산 시각: {self.calculation_time.strftime('%Y-%m-%d %H:%M:%S')}
 """.strip()
+
+        return summary
 
     def get_trace_summary(self) -> str:
         """계산 과정 요약
