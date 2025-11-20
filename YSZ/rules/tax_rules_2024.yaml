@@ -1,0 +1,179 @@
+# 양도소득세 계산 규칙 (2024년 기준)
+# 버전: 2024.11
+# 최종 수정: 2024-11-20
+
+version: "2024.11"
+effective_date: "2024-01-01"
+description: "2024년 양도소득세 계산 규칙"
+
+# 세율 규칙
+tax_rates:
+  # 기본 세율 (일반 지역)
+  basic_long_term:
+    name: "장기보유 기본세율"
+    priority: 10
+    conditions:
+      - field: "holding_period_years"
+        operator: "gte"
+        value: 1
+      - field: "is_adjusted_area"
+        operator: "eq"
+        value: false
+    rate: 0.06
+    description: "1년 이상 보유, 일반지역"
+    legal_basis: "소득세법 제104조 제1항 제1호"
+
+  basic_short_term:
+    name: "단기보유 기본세율"
+    priority: 9
+    conditions:
+      - field: "holding_period_years"
+        operator: "lt"
+        value: 1
+      - field: "is_adjusted_area"
+        operator: "eq"
+        value: false
+    rate: 0.42
+    description: "1년 미만 보유, 일반지역"
+    legal_basis: "소득세법 제104조 제1항 제2호"
+
+  # 중과세 (조정대상지역)
+  adjusted_area_very_short:
+    name: "조정지역 초단기 중과"
+    priority: 20
+    conditions:
+      - field: "holding_period_years"
+        operator: "lt"
+        value: 1
+      - field: "is_adjusted_area"
+        operator: "eq"
+        value: true
+    rate: 0.70
+    description: "1년 미만 보유, 조정대상지역"
+    legal_basis: "소득세법 제104조 제1항 제3호"
+
+  adjusted_area_short:
+    name: "조정지역 단기 중과"
+    priority: 19
+    conditions:
+      - field: "holding_period_years"
+        operator: "gte"
+        value: 1
+      - field: "holding_period_years"
+        operator: "lt"
+        value: 2
+      - field: "is_adjusted_area"
+        operator: "eq"
+        value: true
+    rate: 0.60
+    description: "1년 이상 2년 미만 보유, 조정대상지역"
+    legal_basis: "소득세법 제104조 제1항 제3호"
+
+  adjusted_area_medium:
+    name: "조정지역 중기 중과"
+    priority: 18
+    conditions:
+      - field: "holding_period_years"
+        operator: "gte"
+        value: 2
+      - field: "is_adjusted_area"
+        operator: "eq"
+        value: true
+    rate: 0.42
+    description: "2년 이상 보유, 조정대상지역"
+    legal_basis: "소득세법 제104조 제1항 제3호"
+
+# 공제 규칙
+deductions:
+  # 1세대 1주택 비과세
+  one_house_exemption:
+    name: "1세대 1주택 비과세"
+    priority: 100
+    conditions:
+      - field: "is_primary_residence"
+        operator: "eq"
+        value: true
+      - field: "residence_period_years"
+        operator: "gte"
+        value: 2
+      - field: "holding_period_years"
+        operator: "gte"
+        value: 2
+    exemption_limit: 1200000000  # 12억원
+    description: "2년 이상 보유 및 거주한 1세대 1주택"
+    legal_basis: "소득세법 제89조 제1항 제3호"
+
+  # 장기보유특별공제
+  long_term_holding_deduction:
+    name: "장기보유특별공제"
+    priority: 50
+    conditions:
+      - field: "holding_period_years"
+        operator: "gte"
+        value: 3
+    rates:
+      3: 0.06   # 3년 이상: 6%
+      4: 0.08   # 4년 이상: 8%
+      5: 0.10   # 5년 이상: 10%
+      6: 0.12   # 6년 이상: 12%
+      7: 0.14   # 7년 이상: 14%
+      8: 0.16   # 8년 이상: 16%
+      9: 0.18   # 9년 이상: 18%
+      10: 0.20  # 10년 이상: 20%
+      15: 0.30  # 15년 이상: 30%
+    max_rate: 0.30
+    description: "3년 이상 보유 시 양도차익 공제"
+    legal_basis: "소득세법 제95조 제2항"
+
+# 계산 단계 정의
+calculation_steps:
+  - step: "calculate_transfer_income"
+    name: "양도소득 계산"
+    formula: "disposal_price - acquisition_price - acquisition_cost - disposal_cost - improvement_cost"
+    description: "양도가액에서 취득가액 및 필요경비를 차감"
+
+  - step: "apply_long_term_deduction"
+    name: "장기보유특별공제 적용"
+    depends_on: ["calculate_transfer_income"]
+    description: "보유기간에 따른 공제 적용"
+
+  - step: "calculate_taxable_income"
+    name: "과세표준 계산"
+    depends_on: ["apply_long_term_deduction"]
+    description: "공제 후 과세 대상 소득 계산"
+
+  - step: "apply_tax_rate"
+    name: "세율 적용"
+    depends_on: ["calculate_taxable_income"]
+    description: "해당 세율을 적용하여 세액 계산"
+
+  - step: "apply_exemptions"
+    name: "비과세 및 감면 적용"
+    depends_on: ["apply_tax_rate"]
+    description: "1세대 1주택 등 비과세 요건 확인"
+
+# 유효성 검증 규칙
+validation_rules:
+  required_fields:
+    - "acquisition_date"
+    - "acquisition_price"
+    - "disposal_date"
+    - "disposal_price"
+
+  logical_checks:
+    - name: "disposal_after_acquisition"
+      check: "disposal_date >= acquisition_date"
+      error_message: "처분일은 취득일 이후여야 합니다"
+
+    - name: "positive_prices"
+      check: "acquisition_price >= 0 and disposal_price >= 0"
+      error_message: "가격은 0 이상이어야 합니다"
+
+# 메타데이터
+metadata:
+  author: "양상증닷컴"
+  last_updated: "2024-11-20"
+  notes: |
+    - 2024년 기준 양도소득세 계산 규칙
+    - 실제 적용 시 개별 사례별 검토 필요
+    - 지방세(지방소득세 10%)는 별도 계산

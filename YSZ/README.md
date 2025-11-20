@@ -100,8 +100,11 @@ print(f"양도차익: {ledger.capital_gain:,}원")
 - [x] Git 저장소 구성
 - [x] **Fact 클래스 구현** (추적 가능한 사실 정보)
 - [x] **FactLedger 구현** (Fact 래핑, freeze 메커니즘)
-- [x] **테스트 코드** (28개 테스트 통과)
-- [ ] 양도소득세 계산 엔진
+- [x] **양도소득세 계산 엔진** (RuleEngine, TaxCalculator)
+- [x] **계산 추적 시스템** (CalculationTrace, CalculationResult)
+- [x] **세법 규칙 관리** (YAML 기반)
+- [x] **테스트 코드** (43개 테스트 통과)
+- [ ] **정확한 누진세율 적용** (현재는 단순 평면 세율)
 - [ ] FastAPI REST API
 - [ ] PostgreSQL 연동
 - [ ] React 프론트엔드
