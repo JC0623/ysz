@@ -59,7 +59,7 @@ class ConflictResolver:
         confirmed_facts = [f for f in facts if f.is_confirmed]
         if confirmed_facts:
             # 확정된 것 중 가장 최근 것 선택
-            return max(confirmed_facts, key=lambda f: f.created_at)
+            return max(confirmed_facts, key=lambda f: f.entered_at)
 
         # 2. 우선순위와 신뢰도로 정렬
         sorted_facts = sorted(
@@ -67,7 +67,7 @@ class ConflictResolver:
             key=lambda f: (
                 self._get_priority(f.source),
                 f.confidence,
-                f.created_at
+                f.entered_at
             ),
             reverse=True
         )

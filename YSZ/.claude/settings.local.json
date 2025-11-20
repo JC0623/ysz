@@ -15,7 +15,8 @@
       "Bash(pip install:*)",
       "Bash(pytest:*)",
       "Bash(python -m pytest:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(Select-Object -Last 10)"
     ],
     "deny": [],
     "ask": []

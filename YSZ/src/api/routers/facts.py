@@ -33,7 +33,7 @@ def _fact_to_response(field_name: str, fact: Fact) -> FactResponse:
         source=fact.source,
         confidence=float(fact.confidence),
         is_confirmed=fact.is_confirmed,
-        created_at=fact.created_at,
+        created_at=fact.entered_at,  # Fact uses entered_at not created_at
         entered_by=fact.entered_by
     )
 
@@ -79,11 +79,11 @@ def _save_fact_to_db(
         source=fact.source,
         confidence=Decimal(str(fact.confidence)),
         is_confirmed=fact.is_confirmed,
-        created_at=fact.created_at,
+        created_at=fact.entered_at,  # Fact uses entered_at not created_at
         entered_by=fact.entered_by,
-        confirmed_at=fact.confirmed_at,
-        confirmed_by=fact.confirmed_by,
-        extra_metadata=fact.metadata
+        confirmed_at=None,  # Fact doesn't have confirmed_at attribute
+        confirmed_by=None,  # Fact doesn't have confirmed_by attribute
+        extra_metadata=None  # Fact doesn't have metadata attribute
     )
 
     db.add(fact_db)
@@ -110,11 +110,8 @@ def _load_fact_from_db(fact_db: FactDB) -> tuple[str, Fact]:
         confidence=float(fact_db.confidence),
         is_confirmed=fact_db.is_confirmed,
         entered_by=fact_db.entered_by,
-        confirmed_at=fact_db.confirmed_at,
-        confirmed_by=fact_db.confirmed_by,
-        metadata=fact_db.extra_metadata
+        entered_at=fact_db.created_at  # Map DB's created_at to Fact's entered_at
     )
-    fact.created_at = fact_db.created_at
 
     return (fact_db.field_name, fact)
 

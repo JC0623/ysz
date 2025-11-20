@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 데이터베이스
+  db:
+    image: postgres:15-alpine
+    container_name: ysz_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ysz_prod
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI 백엔드
+  backend:
+    build: .
+    container_name: ysz_backend
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/ysz_prod
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      AUDIT_LOG_RETENTION_DAYS: 1825  # 5년
+    volumes:
+      - ./logs:/app/logs
+      - ./src:/app/src
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Nginx (프론트엔드 서빙 + 리버스 프록시)
+  nginx:
+    image: nginx:alpine
+    container_name: ysz_nginx
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  default:
+    name: ysz_network

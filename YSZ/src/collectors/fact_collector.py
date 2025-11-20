@@ -46,11 +46,18 @@ class FactCollector:
             ... }
             >>> facts = await collector.collect_from_user_input(user_data)
         """
+        # 계산되는 필드들은 제외 (FactLedger의 @property 메서드로 계산됨)
+        computed_fields = {'holding_period_years', 'capital_gain'}
+
         facts = []
 
         # 각 필드를 Fact 객체로 변환
         for field_name, value in user_data.items():
             if value is None:
+                continue
+
+            # 계산 필드는 건너뛰기
+            if field_name in computed_fields:
                 continue
 
             # 타입별 변환

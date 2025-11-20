@@ -65,6 +65,8 @@ class FactLedger:
     acquisition_cost: Optional[Fact[Decimal]] = None
     disposal_cost: Optional[Fact[Decimal]] = None
     improvement_cost: Optional[Fact[Decimal]] = None
+    necessary_expenses: Optional[Fact[Decimal]] = None  # 필요경비 (총액)
+    acquisition_tax_paid: Optional[Fact[Decimal]] = None  # 취득세
 
     # 거주 정보
     is_primary_residence: Optional[Fact[bool]] = None
@@ -72,6 +74,10 @@ class FactLedger:
 
     # 다주택 정보
     house_count: Optional[Fact[int]] = None  # 보유 주택 수 (중과세 판단용)
+    number_of_houses: Optional[Fact[int]] = None  # 보유 주택 수 (별칭)
+
+    # 조정대상지역 정보
+    is_adjusted_area: Optional[Fact[bool]] = None  # 조정대상지역 여부
 
     # 메타데이터
     created_at: datetime = field(default_factory=datetime.now)
