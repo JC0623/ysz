@@ -51,11 +51,56 @@ conda activate ysz
 pip install -r requirements.txt
 ```
 
+### 사용 예제
+
+```python
+from datetime import date
+from decimal import Decimal
+from src.core import Fact, FactLedger
+
+# 1. FactLedger 생성 (Fact 래핑 방식)
+ledger = FactLedger.create({
+    "acquisition_date": Fact(
+        value=date(2020, 1, 1),
+        source="user_input",
+        is_confirmed=True,
+        confidence=1.0,
+        entered_by="김세무사"
+    ),
+    "acquisition_price": Decimal("500000000"),  # 자동으로 Fact 래핑
+    "disposal_date": Fact(
+        value=date(2023, 12, 31),
+        is_confirmed=True,
+        confidence=1.0,
+        entered_by="김세무사"
+    ),
+    "disposal_price": Decimal("700000000")
+}, created_by="김세무사")
+
+# 2. 확정되지 않은 필드 확인
+unconfirmed = ledger.get_unconfirmed_fields()
+print(f"확정 필요: {unconfirmed}")
+
+# 3. 추정값 확정
+if ledger.acquisition_price and not ledger.acquisition_price.is_confirmed:
+    confirmed = ledger.acquisition_price.confirm(
+        confirmed_by="김세무사",
+        notes="등기부등본 확인"
+    )
+    ledger.update_field('acquisition_price', confirmed)
+
+# 4. 모든 필드 확정 후 freeze
+ledger.freeze()
+print(f"양도차익: {ledger.capital_gain:,}원")
+```
+
 ### 개발 현황
 
 - [x] 프로젝트 초기 설정
 - [x] Git 저장소 구성
-- [ ] FactLedger 불변 객체 구현
+- [x] **Fact 클래스 구현** (추적 가능한 사실 정보)
+- [x] **FactLedger 구현** (Fact 래핑, freeze 메커니즘)
+- [x] **테스트 코드** (28개 테스트 통과)
 - [ ] 양도소득세 계산 엔진
 - [ ] FastAPI REST API
 - [ ] PostgreSQL 연동

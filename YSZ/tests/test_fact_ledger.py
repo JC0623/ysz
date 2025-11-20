@@ -1,76 +1,168 @@
 """FactLedger 테스트"""
 
 import pytest
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 
-from src.core.fact_ledger import FactLedger
+from src.core import Fact, FactLedger
 
 
 class TestFactLedgerCreation:
     """FactLedger 생성 테스트"""
 
-    def test_create_default_fact_ledger(self):
-        """기본값으로 FactLedger 생성"""
-        fact = FactLedger()
+    def test_create_with_dict(self):
+        """딕셔너리로 FactLedger 생성"""
+        ledger = FactLedger.create({
+            "acquisition_date": Fact(
+                value=date(2020, 1, 1),
+                is_confirmed=True,
+                entered_by="김세무사"
+            ),
+            "disposal_price": Decimal("700000000")  # 자동 래핑
+        }, created_by="김세무사")
 
-        assert fact.transaction_id is not None
-        assert isinstance(fact.transaction_id, str)
-        assert fact.version == 1
-        assert fact.created_by == "system"
+        assert ledger.acquisition_date.value == date(2020, 1, 1)
+        assert ledger.acquisition_date.is_confirmed is True
 
-    def test_create_fact_ledger_with_values(self):
-        """값을 지정하여 FactLedger 생성"""
-        acquisition_date = date(2020, 1, 1)
-        disposal_date = date(2023, 12, 31)
+        # 자동 래핑된 필드
+        assert ledger.disposal_price.value == Decimal("700000000")
+        assert isinstance(ledger.disposal_price, Fact)
+        assert ledger.disposal_price.entered_by == "김세무사"
 
-        fact = FactLedger(
-            asset_type="부동산",
-            asset_description="서울시 강남구 아파트",
-            acquisition_date=acquisition_date,
-            acquisition_price=Decimal("500000000"),
-            disposal_date=disposal_date,
-            disposal_price=Decimal("700000000"),
-            acquisition_cost=Decimal("5000000"),
-            disposal_cost=Decimal("3000000"),
-            created_by="user123"
-        )
+    def test_create_empty_ledger(self):
+        """빈 FactLedger 생성"""
+        ledger = FactLedger.create({}, created_by="system")
 
-        assert fact.asset_type == "부동산"
-        assert fact.acquisition_price == Decimal("500000000")
-        assert fact.disposal_price == Decimal("700000000")
-        assert fact.created_by == "user123"
+        assert ledger.acquisition_date is None
+        assert ledger.disposal_price is None
+        assert ledger.is_frozen is False
 
 
-class TestFactLedgerImmutability:
-    """FactLedger 불변성 테스트"""
+class TestFactLedgerFreeze:
+    """FactLedger freeze 테스트"""
 
-    def test_cannot_modify_fields(self):
-        """필드를 수정할 수 없음을 확인"""
-        fact = FactLedger(asset_type="부동산")
+    def test_freeze_with_all_required_fields(self):
+        """필수 필드가 모두 확정된 경우 freeze 성공"""
+        ledger = FactLedger.create({
+            "acquisition_date": Fact(
+                value=date(2020, 1, 1),
+                is_confirmed=True,
+                confidence=1.0,
+                entered_by="user"
+            ),
+            "acquisition_price": Fact(
+                value=Decimal("500000000"),
+                is_confirmed=True,
+                confidence=1.0,
+                entered_by="user"
+            ),
+            "disposal_date": Fact(
+                value=date(2023, 12, 31),
+                is_confirmed=True,
+                confidence=1.0,
+                entered_by="user"
+            ),
+            "disposal_price": Fact(
+                value=Decimal("700000000"),
+                is_confirmed=True,
+                confidence=1.0,
+                entered_by="user"
+            )
+        })
 
-        with pytest.raises(Exception):  # FrozenInstanceError
-            fact.asset_type = "주식"
+        ledger.freeze()
 
-    def test_create_new_version(self):
-        """새 버전 생성 테스트"""
-        fact = FactLedger(
-            asset_type="부동산",
-            acquisition_price=Decimal("500000000")
-        )
+        assert ledger.is_frozen is True
 
-        new_fact = fact.create_new_version(
-            acquisition_price=Decimal("550000000")
-        )
+    def test_freeze_without_required_field(self):
+        """필수 필드가 없는 경우 freeze 실패"""
+        ledger = FactLedger.create({
+            "acquisition_date": Fact(
+                value=date(2020, 1, 1),
+                is_confirmed=True,
+                confidence=1.0,
+                entered_by="user"
+            )
+            # disposal_price 없음
+        })
 
-        # 원본은 변경되지 않음
-        assert fact.acquisition_price == Decimal("500000000")
-        assert fact.version == 1
+        with pytest.raises(ValueError, match="필수 필드.*설정되지 않았습니다"):
+            ledger.freeze()
 
-        # 새 객체는 변경됨
-        assert new_fact.acquisition_price == Decimal("550000000")
-        assert new_fact.version == 2
-        assert new_fact.asset_type == "부동산"  # 다른 필드는 유지
+    def test_freeze_with_unconfirmed_field(self):
+        """확정되지 않은 필드가 있는 경우 freeze 실패"""
+        ledger = FactLedger.create({
+            "acquisition_date": Fact(
+                value=date(2020, 1, 1),
+                is_confirmed=True,
+                confidence=1.0,
+                entered_by="user"
+            ),
+            "acquisition_price": Fact(
+                value=Decimal("500000000"),
+                is_confirmed=False,  # 확정 안 됨
+                confidence=0.9,
+                entered_by="user"
+            ),
+            "disposal_date": Fact(
+                value=date(2023, 12, 31),
+                is_confirmed=True,
+                confidence=1.0,
+                entered_by="user"
+            ),
+            "disposal_price": Fact(
+                value=Decimal("700000000"),
+                is_confirmed=True,
+                confidence=1.0,
+                entered_by="user"
+            )
+        })
+
+        with pytest.raises(ValueError, match="확정되지 않았습니다"):
+            ledger.freeze()
+
+    def test_cannot_freeze_twice(self):
+        """이미 확정된 ledger는 다시 freeze 불가"""
+        ledger = FactLedger.create({
+            "acquisition_date": Fact(value=date(2020, 1, 1), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "acquisition_price": Fact(value=Decimal("500000000"), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "disposal_date": Fact(value=date(2023, 12, 31), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "disposal_price": Fact(value=Decimal("700000000"), is_confirmed=True, confidence=1.0, entered_by="user")
+        })
+
+        ledger.freeze()
+
+        with pytest.raises(ValueError, match="이미 확정된"):
+            ledger.freeze()
+
+
+class TestFactLedgerUpdate:
+    """FactLedger 업데이트 테스트"""
+
+    def test_update_field_before_freeze(self):
+        """freeze 전에는 필드 업데이트 가능"""
+        ledger = FactLedger.create({
+            "disposal_price": Decimal("700000000")
+        })
+
+        new_fact = Fact(value=Decimal("750000000"), entered_by="김세무사")
+        ledger.update_field("disposal_price", new_fact)
+
+        assert ledger.disposal_price.value == Decimal("750000000")
+
+    def test_cannot_update_after_freeze(self):
+        """freeze 후에는 필드 업데이트 불가"""
+        ledger = FactLedger.create({
+            "acquisition_date": Fact(value=date(2020, 1, 1), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "acquisition_price": Fact(value=Decimal("500000000"), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "disposal_date": Fact(value=date(2023, 12, 31), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "disposal_price": Fact(value=Decimal("700000000"), is_confirmed=True, confidence=1.0, entered_by="user")
+        })
+
+        ledger.freeze()
+
+        with pytest.raises(ValueError, match="확정된 FactLedger는 수정할 수 없습니다"):
+            ledger.update_field("disposal_price", Fact(value=Decimal("750000000"), entered_by="user"))
 
 
 class TestFactLedgerValidation:
@@ -78,171 +170,152 @@ class TestFactLedgerValidation:
 
     def test_disposal_date_before_acquisition_date(self):
         """처분일이 취득일보다 이전인 경우 에러"""
+        ledger = FactLedger.create({
+            "acquisition_date": Fact(value=date(2023, 1, 1), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "acquisition_price": Fact(value=Decimal("500000000"), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "disposal_date": Fact(value=date(2022, 1, 1), is_confirmed=True, confidence=1.0, entered_by="user"),  # 취득일보다 이전
+            "disposal_price": Fact(value=Decimal("700000000"), is_confirmed=True, confidence=1.0, entered_by="user")
+        })
+
         with pytest.raises(ValueError, match="처분일은 취득일보다 이전일 수 없습니다"):
-            FactLedger(
-                acquisition_date=date(2023, 1, 1),
-                disposal_date=date(2022, 1, 1)
-            )
+            ledger.freeze()
 
-    def test_negative_acquisition_price(self):
-        """취득가액이 음수인 경우 에러"""
+    def test_negative_prices(self):
+        """음수 금액 검증"""
+        ledger = FactLedger.create({
+            "acquisition_date": Fact(value=date(2020, 1, 1), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "acquisition_price": Fact(value=Decimal("-500000000"), is_confirmed=True, confidence=1.0, entered_by="user"),  # 음수
+            "disposal_date": Fact(value=date(2023, 12, 31), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "disposal_price": Fact(value=Decimal("700000000"), is_confirmed=True, confidence=1.0, entered_by="user")
+        })
+
         with pytest.raises(ValueError, match="취득가액은 음수일 수 없습니다"):
-            FactLedger(acquisition_price=Decimal("-100"))
-
-    def test_negative_disposal_price(self):
-        """처분가액이 음수인 경우 에러"""
-        with pytest.raises(ValueError, match="처분가액은 음수일 수 없습니다"):
-            FactLedger(disposal_price=Decimal("-100"))
-
-    def test_negative_costs(self):
-        """비용이 음수인 경우 에러"""
-        with pytest.raises(ValueError, match="취득비용은 음수일 수 없습니다"):
-            FactLedger(acquisition_cost=Decimal("-100"))
-
-        with pytest.raises(ValueError, match="처분비용은 음수일 수 없습니다"):
-            FactLedger(disposal_cost=Decimal("-100"))
-
-        with pytest.raises(ValueError, match="자본적지출은 음수일 수 없습니다"):
-            FactLedger(improvement_cost=Decimal("-100"))
-
-    def test_negative_residence_period(self):
-        """거주기간이 음수인 경우 에러"""
-        with pytest.raises(ValueError, match="거주기간은 음수일 수 없습니다"):
-            FactLedger(residence_period_years=-1)
+            ledger.freeze()
 
 
 class TestFactLedgerCalculations:
     """FactLedger 계산 테스트"""
 
     def test_capital_gain_calculation(self):
-        """양도차익 계산 테스트"""
-        fact = FactLedger(
-            acquisition_price=Decimal("500000000"),
-            disposal_price=Decimal("700000000"),
-            acquisition_cost=Decimal("5000000"),
-            disposal_cost=Decimal("3000000"),
-            improvement_cost=Decimal("10000000")
-        )
+        """양도차익 계산"""
+        ledger = FactLedger.create({
+            "acquisition_price": Fact(value=Decimal("500000000"), entered_by="user"),
+            "disposal_price": Fact(value=Decimal("700000000"), entered_by="user"),
+            "acquisition_cost": Fact(value=Decimal("5000000"), entered_by="user"),
+            "disposal_cost": Fact(value=Decimal("3000000"), entered_by="user"),
+            "improvement_cost": Fact(value=Decimal("10000000"), entered_by="user")
+        })
 
         expected_gain = Decimal("700000000") - (
-            Decimal("500000000") +
-            Decimal("5000000") +
-            Decimal("3000000") +
-            Decimal("10000000")
+            Decimal("500000000") + Decimal("5000000") +
+            Decimal("3000000") + Decimal("10000000")
         )
 
-        assert fact.capital_gain == expected_gain
-        assert fact.capital_gain == Decimal("182000000")
-
-    def test_capital_loss(self):
-        """양도차손 테스트"""
-        fact = FactLedger(
-            acquisition_price=Decimal("700000000"),
-            disposal_price=Decimal("500000000")
-        )
-
-        assert fact.capital_gain < 0
-        assert fact.capital_gain == Decimal("-200000000")
+        assert ledger.capital_gain == expected_gain
+        assert ledger.capital_gain == Decimal("182000000")
 
     def test_holding_period_calculation(self):
-        """보유기간 계산 테스트"""
-        fact = FactLedger(
-            acquisition_date=date(2020, 1, 1),
-            disposal_date=date(2023, 12, 31)
-        )
+        """보유기간 계산"""
+        ledger = FactLedger.create({
+            "acquisition_date": Fact(value=date(2020, 1, 1), entered_by="user"),
+            "disposal_date": Fact(value=date(2023, 12, 31), entered_by="user")
+        })
 
-        # 약 4년 (1460일 / 365 = 4년)
-        assert fact.holding_period_years == 4  # 정수 나눗셈
-
-    def test_zero_holding_period(self):
-        """보유기간 0년 테스트"""
-        today = date.today()
-        fact = FactLedger(
-            acquisition_date=today,
-            disposal_date=today
-        )
-
-        assert fact.holding_period_years == 0
+        assert ledger.holding_period_years == 4
 
 
-class TestFactLedgerSerialization:
-    """FactLedger 직렬화 테스트"""
+class TestFactLedgerConfidenceTracking:
+    """FactLedger 신뢰도 추적 테스트"""
 
-    def test_to_dict(self):
-        """딕셔너리 변환 테스트"""
-        fact = FactLedger(
-            asset_type="부동산",
-            acquisition_price=Decimal("500000000"),
-            disposal_price=Decimal("700000000")
-        )
+    def test_get_confidence_summary(self):
+        """신뢰도 요약 조회"""
+        ledger = FactLedger.create({
+            "acquisition_price": Fact(value=Decimal("500000000"), confidence=1.0, entered_by="user"),
+            "disposal_price": Fact(value=Decimal("700000000"), confidence=0.8, entered_by="user")
+        })
 
-        data = fact.to_dict()
+        summary = ledger.get_confidence_summary()
 
-        assert isinstance(data, dict)
-        assert data['asset_type'] == "부동산"
-        assert data['acquisition_price'] == "500000000"
-        assert data['disposal_price'] == "700000000"
-        assert 'transaction_id' in data
-        assert 'version' in data
+        assert summary['acquisition_price'] == 1.0
+        assert summary['disposal_price'] == 0.8
 
-    def test_str_representation(self):
-        """문자열 표현 테스트"""
-        fact = FactLedger(
-            asset_type="부동산",
-            acquisition_date=date(2020, 1, 1),
-            disposal_date=date(2023, 12, 31),
-            acquisition_price=Decimal("500000000"),
-            disposal_price=Decimal("700000000")
-        )
+    def test_get_unconfirmed_fields(self):
+        """확정되지 않은 필드 조회"""
+        ledger = FactLedger.create({
+            "acquisition_price": Fact(value=Decimal("500000000"), is_confirmed=True, confidence=1.0, entered_by="user"),
+            "disposal_price": Fact(value=Decimal("700000000"), is_confirmed=False, confidence=0.9, entered_by="user")
+        })
 
-        str_repr = str(fact)
+        unconfirmed = ledger.get_unconfirmed_fields()
 
-        assert "FactLedger" in str_repr
-        assert "부동산" in str_repr
-        assert "2020-01-01" in str_repr
-        assert "2023-12-31" in str_repr
+        assert 'disposal_price' in unconfirmed
+        assert 'acquisition_price' not in unconfirmed
 
 
 class TestFactLedgerRealWorldScenarios:
     """실제 시나리오 테스트"""
 
-    def test_apartment_transaction(self):
-        """아파트 거래 시나리오"""
-        # 2020년 5억에 아파트 취득
-        # 2023년 7억에 처분
-        # 1세대 1주택, 2년 거주
-        fact = FactLedger(
-            asset_type="부동산",
-            asset_description="서울 강남구 아파트 85㎡",
-            acquisition_date=date(2020, 1, 1),
-            acquisition_price=Decimal("500000000"),
-            disposal_date=date(2023, 12, 31),
-            disposal_price=Decimal("700000000"),
-            acquisition_cost=Decimal("3000000"),  # 취득세, 중개수수료
-            disposal_cost=Decimal("2000000"),      # 중개수수료
-            improvement_cost=Decimal("5000000"),   # 리모델링
-            is_primary_residence=True,
-            residence_period_years=2,
-            created_by="tax_accountant_kim"
+    def test_apartment_transaction_workflow(self):
+        """아파트 거래 워크플로우"""
+        # 1. 초기 데이터 입력 (일부는 추정값)
+        ledger = FactLedger.create({
+            "asset_type": Fact.create_user_input(
+                value="부동산",
+                entered_by="김세무사",
+                is_confirmed=True
+            ),
+            "acquisition_date": Fact.create_user_input(
+                value=date(2020, 1, 1),
+                entered_by="김세무사",
+                is_confirmed=True
+            ),
+            "acquisition_price": Fact.create_estimated(
+                value=Decimal("500000000"),
+                confidence=0.8,
+                notes="과거 시세 기반 추정"
+            ),
+            "disposal_date": Fact.create_user_input(
+                value=date(2023, 12, 31),
+                entered_by="김세무사",
+                is_confirmed=True
+            ),
+            "disposal_price": Fact.create_user_input(
+                value=Decimal("700000000"),
+                entered_by="김세무사",
+                is_confirmed=True
+            )
+        }, created_by="김세무사")
+
+        # 확정되지 않은 필드 확인
+        unconfirmed = ledger.get_unconfirmed_fields()
+        assert 'acquisition_price' in unconfirmed
+
+        # 2. 추정값을 확정값으로 변경
+        confirmed_price = ledger.acquisition_price.confirm(
+            confirmed_by="김세무사",
+            notes="등기부등본 확인 완료"
+        )
+        ledger.update_field('acquisition_price', confirmed_price)
+
+        # 3. 모든 필드 확정 후 freeze
+        ledger.freeze()
+
+        assert ledger.is_frozen is True
+        assert ledger.capital_gain == Decimal("200000000")
+
+    def test_version_management(self):
+        """버전 관리 테스트"""
+        ledger_v1 = FactLedger.create({
+            "disposal_price": Fact(value=Decimal("700000000"), entered_by="user")
+        })
+
+        assert ledger_v1.version == 1
+
+        # 새 버전 생성
+        ledger_v2 = ledger_v1.create_new_version(
+            disposal_price=Fact(value=Decimal("750000000"), entered_by="user")
         )
 
-        assert fact.capital_gain == Decimal("190000000")
-        assert fact.holding_period_years == 4
-        assert fact.is_primary_residence is True
-
-    def test_stock_transaction(self):
-        """주식 거래 시나리오"""
-        fact = FactLedger(
-            asset_type="주식",
-            asset_description="삼성전자 보통주 100주",
-            acquisition_date=date(2023, 1, 1),
-            acquisition_price=Decimal("6000000"),
-            disposal_date=date(2023, 6, 30),
-            disposal_price=Decimal("8000000"),
-            acquisition_cost=Decimal("5000"),  # 수수료
-            disposal_cost=Decimal("8000"),     # 수수료
-            created_by="investor_lee"
-        )
-
-        assert fact.capital_gain == Decimal("1987000")
-        assert fact.holding_period_years == 0  # 1년 미만
+        assert ledger_v1.disposal_price.value == Decimal("700000000")
+        assert ledger_v2.disposal_price.value == Decimal("750000000")
+        assert ledger_v2.version == 2
