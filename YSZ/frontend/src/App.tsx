@@ -8,6 +8,7 @@ import DataInputStep from './components/DataInputStep';
 import FactConfirmationStep from './components/FactConfirmationStep';
 import CalculationStep from './components/CalculationStep';
 import ResultDisplayStep from './components/ResultDisplayStep';
+import StrategyPanel from './components/StrategyPanel';
 
 const { Header, Content, Footer } = Layout;
 const { Title } = Typography;
@@ -124,11 +125,18 @@ function App() {
         )}
 
         {state.currentStep === 3 && state.calculationResult && (
-          <ResultDisplayStep
-            result={state.calculationResult}
-            factLedger={state.factLedger}
-            onReset={handleReset}
-          />
+          <>
+            <ResultDisplayStep
+              result={state.calculationResult}
+              factLedger={state.factLedger}
+              onReset={handleReset}
+            />
+
+            {/* 전략 분석 패널 추가 */}
+            <div style={{ marginTop: 24 }}>
+              <StrategyPanel facts={state.factLedger} />
+            </div>
+          </>
         )}
       </Content>
 

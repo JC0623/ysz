@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from ..database import init_db
-from .routers import facts, calculate
+from .routers import facts, calculate, strategy
 
 
 @asynccontextmanager
@@ -45,6 +45,12 @@ app.include_router(
     calculate.router,
     prefix="/api/v1/calculate",
     tags=["세금계산"]
+)
+
+app.include_router(
+    strategy.router,
+    prefix="/api/v1",
+    tags=["전략분석"]
 )
 
 
