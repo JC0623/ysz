@@ -31,9 +31,9 @@ YSZ는 **4대 핵심 축**으로 고도화:
 - Claude 3.5 Sonnet 통합
 - 25개 테스트, 7개 예제
 
-### Phase 2.5: 프론트엔드 통합 🔄 진행 예정
-- [ ] StrategyAgent API 노출
-- [ ] 프론트엔드 StrategyPanel
+### Phase 2.5: 프론트엔드 통합 🔄 진행 중 (50% 완료)
+- [x] StrategyAgent API 노출 ✅
+- [x] 프론트엔드 StrategyPanel ✅
 - [ ] OrchestratorAgent 강화
 - [ ] VerificationAgent 구현
 
@@ -64,15 +64,20 @@ YSZ는 **4대 핵심 축**으로 고도화:
 
 ## 📋 다음 작업 (우선순위)
 
-### 즉시 시작 (Phase 2.5)
+### 완료된 작업 (2025-11-22)
 
-1. **StrategyAgent API 노출** (1일)
+1. **StrategyAgent API 노출** ✅ (완료)
    - 파일: `src/api/routers/strategy.py`
    - 엔드포인트: `POST /api/v1/strategy/analyze`
+   - Request/Response 스키마 정의
+   - StrategyAgent 싱글톤 패턴
 
-2. **프론트엔드 StrategyPanel** (2일)
+2. **프론트엔드 StrategyPanel** ✅ (완료)
    - 파일: `frontend/src/components/StrategyPanel.tsx`
-   - 기능: 케이스 분류, 시나리오 비교, 추천 표시
+   - 기능: 케이스 분류, 시나리오 비교, 추천, 리스크 표시
+   - App.tsx 통합 (Step 4 이후)
+
+### 다음 작업 (Phase 2.5 계속)
 
 3. **OrchestratorAgent 강화** (2일)
    - 파일: `src/agents/orchestrator_agent.py` (수정)
