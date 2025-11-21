@@ -3,7 +3,7 @@
 수집된 사실관계를 바탕으로 양도소득세를 계산합니다.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from decimal import Decimal
 

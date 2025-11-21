@@ -11,7 +11,6 @@ from decimal import Decimal
 
 from ...agents.strategy_agent import StrategyAgent
 from ...core import FactLedger, Fact
-from ...core.rule_registry import get_default_registry
 
 router = APIRouter(prefix="/strategy", tags=["strategy"])
 
@@ -24,7 +23,7 @@ def get_strategy_agent() -> StrategyAgent:
     global _strategy_agent
     if _strategy_agent is None:
         _strategy_agent = StrategyAgent(
-            rule_registry=get_default_registry(),
+            
             enable_llm=True  # LLM 설명 생성 활성화
         )
     return _strategy_agent
@@ -187,16 +186,32 @@ async def analyze_strategy(request: AnalyzeRequest):
             "necessary_expenses": request.necessary_expenses
         }
 
-        ledger = FactLedger.create(facts_dict, created_by="api_user")
-        ledger.freeze()
-
-        # 2. StrategyAgent 실행
-        agent = get_strategy_agent()
-
-        # LLM 설명 생성 여부 설정
-        agent.enable_llm = request.enable_explanation
-
-        strategy = await agent.analyze(ledger)
+        # Fact 생성 시 confidence=1.0으로 설정 (API 데이터는 신뢰함)
+        facts_dict_confirmed = {}
+        for key, value in facts_dict.items():
+            if isinstance(value, dict):
+                value['confidence'] = 1.0
+                value['is_confirmed'] = True
+                facts_dict_confirmed[key] = value
+            else:
+                facts_dict_confirmed[key] = {
+                    'value': value,
+                    'confidence': 1.0,
+                    'is_confirmed': True
+                }
+        
+        # Fact 객체로 직접 생성 (confirmed=True)
+        from ...core import Fact
+        fact_objects = {}
+        for key, value in facts_dict.items():
+            fact_objects[key] = Fact(
+                value=value,
+                source="api",
+                confidence=1.0,
+                is_confirmed=True
+            )
+        
+        ledger = FactLedger.create(fact_objects, created_by="api_user")
 
         # 3. 응답 변환
         scenarios = [

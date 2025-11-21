@@ -4,6 +4,10 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
 
 from .models import Base
 
@@ -11,7 +15,7 @@ from .models import Base
 # 환경 변수에서 데이터베이스 URL 가져오기
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/ysz_dev"
+    "sqlite:///./ysz.db"  # 기본값을 SQLite로 변경
 )
 
 # SQLAlchemy 엔진 생성
