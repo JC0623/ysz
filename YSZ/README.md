@@ -41,7 +41,7 @@ ysz/
 ```bash
 # 저장소 클론
 git clone https://github.com/JC0623/ysz.git
-cd ysz
+cd ysz/YSZ
 
 # Conda 환경 생성 및 활성화
 conda env create -f environment.yml
@@ -49,6 +49,42 @@ conda activate ysz
 
 # 또는 pip 사용
 pip install -r requirements.txt
+
+# 환경 변수 설정 (선택사항)
+# .env 파일 생성
+echo "ANTHROPIC_API_KEY=your-api-key-here" > .env
+```
+
+### 서버 실행
+
+**백엔드 서버**:
+```bash
+cd src
+python -m api.main
+
+# 또는
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+접속:
+- API: http://localhost:8000
+- Swagger UI: http://localhost:8000/docs
+- Health Check: http://localhost:8000/health
+
+**프론트엔드**:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+접속: http://localhost:5173
+
+### API 테스트
+
+```bash
+# 테스트 스크립트 실행 (백엔드 서버 실행 중이어야 함)
+python test_strategy_api.py
 ```
 
 ### 사용 예제
