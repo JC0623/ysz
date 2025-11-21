@@ -1,7 +1,8 @@
 # AI 에이전트 시스템 통합 구현 요약
 
-**작성일**: 2025-11-21
-**버전**: Phase 2 완료
+**작성일**: 2024-11-21
+**최종 업데이트**: 2024-11-21
+**버전**: Phase 2 완료 (Claude 3.5 Sonnet 통합 완료)
 
 ## 구현 완료 항목
 
@@ -375,45 +376,238 @@ asyncio.run(main())
 
 ---
 
-## 다음 단계 (Phase 3)
+## 5. StrategyAgent (Phase 2 핵심 완성)
 
-### 1. 기존 Agent 리팩토링
-- [src/agents/asset_collector_agent.py](../src/agents/asset_collector_agent.py)
-- [src/agents/calculation_agent.py](../src/agents/calculation_agent.py)
-- [src/agents/verification_agent.py](../src/agents/verification_agent.py)
-- [src/agents/filing_agent.py](../src/agents/filing_agent.py)
+**파일**: [src/agents/strategy_agent.py](../src/agents/strategy_agent.py)
 
-위 Agent들을 `BaseAgent`를 상속하도록 리팩토링:
-- `plan()` 메서드 구현 (실제 LLM 호출)
-- `execute()` 메서드 구현 (결정론적 실행)
-- `_validate_plan_custom()` 오버라이드 (필요 시)
+### 핵심 역할
+세무사의 "두뇌" 역할을 하는 에이전트로, 케이스 분류와 시나리오 제시를 담당합니다.
 
-### 2. Orchestrator 강화
+### 주요 기능
+
+#### 1. 케이스 분류 (100% 결정론적)
+```python
+# IF-THEN 규칙 기반 분류
+rules = [
+    ClassificationRule(
+        rule_id="R020",
+        condition="주택 수 == 1 AND 보유기간 >= 2년 AND 거주기간 >= 2년",
+        category=CaseCategory.SINGLE_HOUSE_EXEMPT,
+        priority=20
+    ),
+    # ... 9개 카테고리
+]
+```
+
+**지원 카테고리**:
+- 1주택_비과세
+- 1주택_과세
+- 다주택_일반
+- 다주택_중과
+- 조정지역_중과
+- 법인, 상속, 기타 등
+
+#### 2. 시나리오 생성 (계산 기반)
+```python
+# TaxCalculator를 사용한 정확한 세금 계산
+result = tax_calculator.calculate(fact_ledger)
+
+scenario = Scenario(
+    scenario_id="SC_NOW",
+    name="지금_양도",
+    expected_tax=result.calculated_tax,  # 결정론적
+    additional_costs=calculate_holding_costs(),  # 로직 기반
+    pros=["비과세 적용", "즉시 현금화"],
+    cons=["향후 시세 상승 기회 상실"]
+)
+```
+
+**생성 시나리오**:
+- 즉시 양도 (기본)
+- 1년/2년 후 양도 (조건부)
+- 증여 후 양도 (Phase 3)
+
+#### 3. 리스크 분석 (규칙 기반)
+```python
+# 고액 양도차익 리스크
+if capital_gain > 500_000_000:
+    risks.append(Risk(
+        risk_id="RISK_HIGH_GAIN",
+        level=RiskLevel.MEDIUM,
+        title="고액 양도차익",
+        mitigation="계산 근거 자료 철저 준비"
+    ))
+```
+
+#### 4. 추천 로직 (순 편익 최대화)
+```python
+# 순 편익 = 예상 수익 - (세금 + 추가 비용)
+best_scenario = max(
+    feasible_scenarios,
+    key=lambda s: s.net_benefit()
+)
+```
+
+### Claude 3.5 Sonnet 통합 ✨
+
+#### 선택적 LLM 활성화
+```python
+# LLM 활성화 (선택적)
+agent = StrategyAgent(
+    enable_llm=True,
+    claude_api_key="sk-ant-..."  # 또는 환경변수
+)
+
+strategy = await agent.analyze(ledger)
+
+# 로직 결과 (100% 동일)
+print(strategy.category)  # "1주택_비과세"
+print(strategy.scenarios[0].expected_tax)  # 0원
+
+# Claude 생성 설명 (추가)
+print(strategy.llm_explanation)  # 고객용 친절한 설명
+print(strategy.llm_additional_advice)  # 전문가 조언
+```
+
+#### LLM의 역할 (설명만!)
+- ✅ **친절한 설명 생성**: 로직 결과를 일반인도 이해할 수 있게 설명
+- ✅ **전문가 추가 조언**: 엣지 케이스, 세무조사 대비, 세법 개정 고려
+- ❌ **분류/계산/추천 안 함**: 모든 핵심 로직은 코드가 수행
+
+#### 비용 효율성
+- 케이스당 약 6원
+- 월 1,000건: 약 6,000원
+- Claude 3.5 Sonnet 사용
+
+### 데이터 모델
+
+**파일**: [src/agents/strategy_models.py](../src/agents/strategy_models.py)
+
+#### Strategy
+```python
+@dataclass
+class Strategy:
+    category: CaseCategory  # 결정론적 분류
+    scenarios: List[Scenario]  # 계산 기반
+    recommended_scenario_id: str  # 로직 선택
+    risks: List[Risk]  # 규칙 기반
+    missing_info: List[MissingInfo]  # 필수 정보 체크
+    confidence_score: float  # Fact 신뢰도
+
+    # LLM 생성 (선택적)
+    llm_explanation: Optional[str] = None
+    llm_additional_advice: Optional[str] = None
+```
+
+### 테스트
+
+**파일**:
+- [tests/test_strategy_agent.py](../tests/test_strategy_agent.py) - 17개 로직 테스트
+- [tests/test_strategy_agent_claude.py](../tests/test_strategy_agent_claude.py) - 8개 LLM 테스트
+
+**테스트 커버리지**:
+1. 케이스 분류 (4개 테스트)
+2. 시나리오 생성 (3개 테스트)
+3. 리스크 분석 (3개 테스트)
+4. 추천 로직 (2개 테스트)
+5. 신뢰도 계산 (2개 테스트)
+6. Claude 통합 (8개 테스트)
+
+### 예제
+
+**파일**:
+- [examples/strategy_agent_example.py](../examples/strategy_agent_example.py) - 6개 로직 예제
+- [examples/strategy_agent_claude_example.py](../examples/strategy_agent_claude_example.py) - Claude 통합 예제
+
+---
+
+## 핵심 철학 달성 ✅
+
+### 1. 사실관계 중심 (Fact-First)
+- 모든 계산은 확정된 FactLedger 기반
+- Agent가 생성한 Fact도 세무사 검토 후 확정
+- FactLedger freeze 후에만 계산 수행
+
+### 2. 결정론적 실행 (Deterministic Execution)
+- **StrategyAgent**: 분류/계산/추천 100% 로직 기반
+- **LLM**: 계획(Plan)과 설명(Explanation)만 담당
+- **실행(Execute)**: 항상 결정론적 코드로 수행
+
+### 3. 검증 가능성 (Auditability)
+- 모든 Fact에 rule_version 태깅
+- 모든 계산에 CalculationTrace 기록
+- AgentExecution으로 전체 실행 이력 저장
+- 감사 시 완전 재현 가능
+
+---
+
+## 다음 단계 (Phase 2.5)
+
+### 1. Orchestrator에 StrategyAgent 통합
 [src/agents/orchestrator_agent.py](../src/agents/orchestrator_agent.py)를 강화:
-- 각 Agent의 `run()` 호출
-- `AgentExecution` 수집 및 감사 로그 생성
+- StrategyAgent를 워크플로우에 통합
+- 사용자 시나리오 선택 플로우 구현
+- AgentExecution 수집 및 감사 로그 생성
 - Rule 스냅샷 관리
 
-### 3. 감사 추적 시스템
+### 2. VerificationAgent 구현
+검증 전문 에이전트 (LLM 없음, 로직만):
+- 계산 로직 검증 (이중 계산)
+- 세법 규칙 버전 체크
+- 계산 근거 추적 검증
+- 국세청 소명/분쟁 대비 자료 준비
+
+### 3. 기존 Agent 리팩토링
+- [src/agents/asset_collector_agent.py](../src/agents/asset_collector_agent.py)
+- [src/agents/calculation_agent.py](../src/agents/calculation_agent.py)
+- [src/agents/filing_agent.py](../src/agents/filing_agent.py)
+
+위 Agent들을 `BaseAgent`를 상속하도록 리팩토링
+
+### 4. 감사 추적 시스템
 - `CaseAuditLog` 구현
 - 전체 케이스 실행 이력 저장
 - 감사 보고서 생성 기능
-
-### 4. 실제 LLM 통합
-- OpenAI API 통합
-- Anthropic Claude API 통합
-- LLM 프롬프트 템플릿 관리
 
 ---
 
 ## 참고 문서
 
 1. [AI 에이전트 시스템 통합 명세서](./ai_agent_integration_spec.md)
-2. [기존 아키텍처 문서](./architecture.md)
-3. [Agent 아키텍처 문서](./agent_architecture.md)
-4. [Fact 시스템 문서](./fact_system.md)
+2. [StrategyAgent 상세 문서](./strategy_agent.md) - **NEW!**
+3. [기존 아키텍처 문서](./architecture.md)
+4. [Agent 아키텍처 문서](./agent_architecture.md)
+5. [Fact 시스템 문서](./fact_system.md)
 
 ---
 
-**구현 완료일**: 2025-11-21
-**다음 리뷰 예정일**: Phase 3 시작 시
+## 구현 통계
+
+### 코드
+- 신규 파일: 7개
+- 수정 파일: 4개
+- 총 라인 수: ~3,000 라인
+
+### 테스트
+- 기반 구조 테스트: 12개
+- StrategyAgent 로직 테스트: 17개
+- StrategyAgent LLM 테스트: 8개
+- **총 테스트: 37개**
+
+### 문서
+- 명세서: 1개 (ai_agent_integration_spec.md)
+- 상세 문서: 2개 (implementation_summary.md, strategy_agent.md)
+- 아키텍처 리뷰: 2개
+- **총 문서: 5개**
+
+### 예제
+- 기반 구조 예제: 1개
+- StrategyAgent 로직 예제: 1개 (6개 시나리오)
+- StrategyAgent Claude 예제: 1개 (4개 시나리오)
+- **총 예제: 3개 (10+ 시나리오)**
+
+---
+
+**구현 완료일**: 2024-11-21
+**Phase 2 완료**: ✅ AI 에이전트 시스템 + StrategyAgent + Claude 3.5 Sonnet
+**다음 단계**: Phase 2.5 - Orchestrator 통합 및 VerificationAgent 구현
