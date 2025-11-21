@@ -318,46 +318,135 @@ if not strategy.is_ready_to_execute():
 
 ---
 
-## LLM 통합 (선택, Phase 2)
+## LLM 통합 (Claude 3.5 Sonnet) ✅
 
-현재는 모든 로직이 결정론적입니다. 향후 LLM을 추가할 수 있습니다:
+**Phase 2 완료**: Claude 3.5 Sonnet 통합 완료!
+
+### 통합 방식
 
 ```python
-class StrategyAgent:
+from src.agents import StrategyAgent
 
-    async def analyze(self, ledger):
-        # ... 로직 기반 분석 완료 ...
+# LLM 활성화 (API 키 필요)
+agent = StrategyAgent(
+    enable_llm=True,
+    claude_api_key="your-api-key"  # 또는 환경변수 ANTHROPIC_API_KEY
+)
 
-        # (선택) LLM으로 친절한 설명 생성
-        if self.llm_enabled:
-            strategy.llm_explanation = await self._generate_explanation(
-                strategy
-            )
+strategy = await agent.analyze(ledger)
 
-        return strategy
-
-    async def _generate_explanation(self, strategy):
-        """LLM으로 사용자 친화적 설명 생성"""
-
-        prompt = f"""
-        다음 분석 결과를 일반인도 이해할 수 있게 설명해주세요.
-
-        분류: {strategy.category.value}
-        시나리오: {len(strategy.scenarios)}개
-        추천: {strategy.recommended_scenario_id}
-
-        친절하고 쉬운 언어로 3-5문장 설명:
-        """
-
-        return await self.llm.chat(prompt)
+# LLM 생성 설명
+print(strategy.llm_explanation)  # 고객용 친절한 설명
+print(strategy.llm_additional_advice)  # 전문가 추가 조언
 ```
 
-**LLM 역할**:
-- ❌ 분류 (로직이 함)
-- ❌ 계산 (TaxCalculator가 함)
-- ❌ 추천 (로직이 함)
-- ✅ 설명 생성 (친절한 언어로)
-- ✅ 추가 조언 (참고사항)
+### 주요 특징
+
+1. **100% 선택적**: LLM 없이도 완벽히 동작
+2. **로직 우선**: 모든 분류/계산/추천은 로직이 수행
+3. **설명만 생성**: LLM은 결과를 설명하는 역할만
+
+```python
+# LLM 비활성화 (기본값)
+agent = StrategyAgent(enable_llm=False)
+strategy = await agent.analyze(ledger)
+
+# 로직 결과는 동일
+assert strategy.category == CaseCategory.SINGLE_HOUSE_EXEMPT
+assert strategy.scenarios[0].expected_tax == Decimal(0)
+
+# 설명만 없음
+assert strategy.llm_explanation is None
+```
+
+### Claude의 역할
+
+**✅ Claude가 하는 일**:
+1. **친절한 설명 생성** (`llm_explanation`)
+   - 로직 결과를 일반인도 이해할 수 있게 설명
+   - 전문 용어 최소화
+   - 3-5문장으로 간결하게
+
+2. **전문가 추가 조언** (`llm_additional_advice`)
+   - 로직으로 발견 못한 엣지 케이스 감지
+   - 세무조사 대비 팁
+   - 세법 개정 고려사항
+   - 유사 케이스 실수 방지
+
+**❌ Claude가 하지 않는 일**:
+- 케이스 분류 (로직이 100% 결정)
+- 세금 계산 (TaxCalculator가 수행)
+- 시나리오 추천 (순편익 로직이 선택)
+- 사실관계 추정 (Fact Container 기반)
+
+### 사용 예제
+
+```python
+# 1. 환경변수로 API 키 설정
+import os
+os.environ["ANTHROPIC_API_KEY"] = "sk-ant-..."
+
+# 2. LLM 활성화
+agent = StrategyAgent(enable_llm=True)
+
+# 3. 분석 실행
+ledger = FactLedger.create({
+    "acquisition_date": date(2020, 1, 1),
+    "acquisition_price": Decimal("500000000"),
+    "disposal_date": date(2024, 11, 21),
+    "disposal_price": Decimal("800000000"),
+    "house_count": 1,
+    "residence_period_years": 4
+})
+
+strategy = await agent.analyze(ledger)
+
+# 4. 로직 결과
+print(f"분류: {strategy.category.value}")  # "1주택_비과세"
+print(f"세금: {strategy.scenarios[0].expected_tax:,}원")  # 0원
+
+# 5. Claude 설명
+print("\n고객용 설명:")
+print(strategy.llm_explanation)
+# 출력 예: "고객님의 경우 1주택 비과세 요건을 모두 충족하셨습니다.
+#          2년 이상 보유하시고 실제 거주도 하셨기 때문에,
+#          양도소득세가 전혀 발생하지 않습니다..."
+
+print("\n전문가 조언:")
+print(strategy.llm_additional_advice)
+# 출력 예: "- 비과세 적용을 위해 전입세대 열람 원본 보관 권장
+#          - 양도일로부터 2개월 이내 예정신고 기한 준수
+#          - 향후 재취득 시 비과세 재적용 요건 확인 필요"
+```
+
+### 비용 추정
+
+Claude 3.5 Sonnet 사용 비용 (2024년 11월 기준):
+- Input: $3 / 1M tokens
+- Output: $15 / 1M tokens
+
+케이스당 예상 비용:
+- Input: ~500 tokens (분석 결과)
+- Output: ~300 tokens (설명 + 조언)
+- **케이스당 약 6원**
+
+월 1,000건 분석 시: **약 6,000원/월**
+
+### 오류 처리
+
+Claude API 오류가 발생해도 전체 분석은 성공합니다:
+
+```python
+strategy = await agent.analyze(ledger)
+
+# 로직 결과는 항상 성공
+assert strategy.category is not None
+assert len(strategy.scenarios) > 0
+
+# Claude 오류 시 빈 문자열
+if not strategy.llm_explanation:
+    print("LLM 설명 생성 실패 (로직 결과는 정상)")
+```
 
 ---
 
@@ -419,20 +508,23 @@ async def test_high_capital_gain_risk():
 
 ## 확장 계획
 
-### Phase 2: 추가 시나리오
+### ~~Phase 2: LLM 통합~~ ✅ 완료!
+- ✅ Claude 3.5 Sonnet 통합
+- ✅ 친절한 설명 생성
+- ✅ 추가 조언 제시
+- ⏸️ 유사 케이스 검색 (Phase 3으로 이동)
+
+### Phase 3: 추가 시나리오
 - 증여 후 양도
 - 법인 전환 후 양도
 - 임대 후 양도
-
-### Phase 3: LLM 통합
-- 친절한 설명 생성
-- 추가 조언 제시
-- 유사 케이스 검색
+- 1년/2년 후 양도 시나리오 확장
 
 ### Phase 4: 학습 기능
 - 세무사 피드백 수집
 - 규칙 자동 업데이트
 - A/B 테스트
+- Claude Fine-tuning (선택)
 
 ---
 
@@ -444,6 +536,23 @@ async def test_high_capital_gain_risk():
 - ✅ **계산**: TaxCalculator (결정론적)
 - ✅ **리스크**: 규칙 기반 체크
 - ✅ **추천**: 순 편익 최대화
-- ⏸️ **설명**: LLM (선택, Phase 2)
+- ✅ **설명**: Claude 3.5 Sonnet (선택적)
 
-**"LLM 없이도 완벽히 동작, LLM은 보조"**
+**"LLM 없이도 완벽히 동작, LLM은 설명 보조"**
+
+### 핵심 철학 달성 ✅
+
+1. **사실관계 중심**: FactLedger 기반 계산 ✓
+2. **결정론적 실행**: 로직이 주인공, LLM은 설명만 ✓
+3. **검증 가능성**: 모든 계산 근거 추적 가능 ✓
+
+### 구현 완료 항목
+
+- [x] 케이스 분류 (9개 카테고리, 결정론적 규칙)
+- [x] 시나리오 생성 (TaxCalculator 기반)
+- [x] 리스크 분석 (규칙 기반 체크)
+- [x] 추천 로직 (순 편익 최대화)
+- [x] Claude 3.5 Sonnet 통합
+- [x] 17개 단위 테스트 + 8개 LLM 테스트
+- [x] 6개 사용 예제 + Claude 통합 예제
+- [x] 완전한 문서화

@@ -11,6 +11,13 @@
 from typing import Dict, Any, Optional, List
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+import os
+
+try:
+    from anthropic import Anthropic
+    CLAUDE_AVAILABLE = True
+except ImportError:
+    CLAUDE_AVAILABLE = False
 
 from .strategy_models import (
     Strategy,
@@ -35,16 +42,35 @@ class StrategyAgent:
     5. (선택) LLM으로 설명 생성
     """
 
-    def __init__(self, rule_registry: Optional[RuleRegistry] = None):
+    def __init__(
+        self,
+        rule_registry: Optional[RuleRegistry] = None,
+        claude_api_key: Optional[str] = None,
+        enable_llm: bool = False
+    ):
         """
         Args:
             rule_registry: 규칙 레지스트리 (None이면 기본)
+            claude_api_key: Claude API 키 (None이면 환경변수에서 읽음)
+            enable_llm: LLM 설명 생성 활성화 (기본 False)
         """
         self.rule_registry = rule_registry or get_default_registry()
         self.calculator = TaxCalculator()
 
         # 분류 규칙 초기화
         self._classification_rules = self._init_classification_rules()
+
+        # Claude 클라이언트 초기화 (선택적)
+        self.enable_llm = enable_llm and CLAUDE_AVAILABLE
+        self.claude = None
+
+        if self.enable_llm:
+            api_key = claude_api_key or os.getenv("ANTHROPIC_API_KEY")
+            if api_key:
+                self.claude = Anthropic(api_key=api_key)
+            else:
+                print("Warning: LLM enabled but no API key provided. LLM features disabled.")
+                self.enable_llm = False
 
     def _init_classification_rules(self) -> List[ClassificationRule]:
         """분류 규칙 초기화 (결정론적)
@@ -146,8 +172,9 @@ class StrategyAgent:
         strategy.confidence_score = self._calculate_confidence(fact_ledger, strategy)
 
         # 7. (선택) LLM으로 친절한 설명 생성
-        # strategy.llm_explanation = await self._generate_explanation(strategy)
-        # 나중에 추가
+        if self.enable_llm and self.claude:
+            strategy.llm_explanation = await self._generate_explanation_claude(strategy, fact_ledger)
+            strategy.llm_additional_advice = await self._generate_advice_claude(strategy, fact_ledger)
 
         return strategy
 
@@ -557,3 +584,97 @@ class StrategyAgent:
 
         # 평균 신뢰도
         return sum(confidences) / len(confidences)
+
+    async def _generate_explanation_claude(self, strategy: Strategy, ledger: FactLedger) -> str:
+        """Claude로 사용자 친화적 설명 생성
+
+        LLM은 계산이나 분류를 하지 않고, 이미 결정된 로직 결과를
+        일반인도 이해할 수 있게 설명하는 역할만 합니다.
+        """
+        if not self.claude:
+            return ""
+
+        # 로직 결과 요약
+        recommended = strategy.get_recommended_scenario()
+
+        prompt = f"""당신은 세무 전문가입니다. 다음 양도소득세 분석 결과를 일반 고객이 이해하기 쉽게 설명해주세요.
+
+**분석 결과 (이미 계산된 결과입니다)**
+- 케이스 분류: {strategy.category.value}
+- 총 시나리오: {len(strategy.scenarios)}개
+- 추천 시나리오: {recommended.name if recommended else '없음'}
+- 예상 세금: {recommended.expected_tax if recommended else 0:,}원
+
+**고객 상황**
+- 보유 주택: {ledger.house_count.value if ledger.house_count else 1}채
+- 양도차익: {ledger.capital_gain:,}원
+- 거주 기간: {ledger.residence_period_years.value if ledger.residence_period_years else '미확인'}년
+
+**요청사항**
+위 분석 결과를 바탕으로 고객에게 친절하게 설명해주세요 (3-5문장).
+계산을 다시 하지 말고, 이미 나온 결과를 쉽게 풀어서 설명만 하세요.
+전문 용어는 최소화하고, 고객이 어떤 선택을 할 수 있는지 안내해주세요.
+"""
+
+        try:
+            message = self.claude.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1024,
+                temperature=0.7,
+                messages=[{
+                    "role": "user",
+                    "content": prompt
+                }]
+            )
+
+            return message.content[0].text if message.content else ""
+
+        except Exception as e:
+            print(f"Claude explanation generation failed: {e}")
+            return ""
+
+    async def _generate_advice_claude(self, strategy: Strategy, ledger: FactLedger) -> str:
+        """Claude로 추가 전문가 조언 생성
+
+        로직으로 발견하기 어려운 엣지 케이스나 추가 고려사항을
+        전문가 관점에서 제시합니다.
+        """
+        if not self.claude:
+            return ""
+
+        # 리스크 요약
+        high_risks = [r.title for r in strategy.get_high_risks()]
+        missing_info = [m.description for m in strategy.get_critical_missing_info()]
+
+        prompt = f"""당신은 20년 경력의 세무사입니다. 다음 케이스에 대해 추가 전문가 조언을 해주세요.
+
+**케이스 개요**
+- 분류: {strategy.category.value}
+- 고위험 요소: {', '.join(high_risks) if high_risks else '없음'}
+- 부족 정보: {', '.join(missing_info) if missing_info else '없음'}
+
+**요청사항**
+1. 이 케이스에서 주의해야 할 추가 사항 (로직으로 발견 못한 것)
+2. 국세청 세무조사 대비 팁
+3. 세법 개정 시 고려사항
+4. 유사 케이스에서 자주 발생하는 실수
+
+간결하게 3-4개 bullet point로 작성해주세요.
+"""
+
+        try:
+            message = self.claude.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1024,
+                temperature=0.7,
+                messages=[{
+                    "role": "user",
+                    "content": prompt
+                }]
+            )
+
+            return message.content[0].text if message.content else ""
+
+        except Exception as e:
+            print(f"Claude advice generation failed: {e}")
+            return ""
